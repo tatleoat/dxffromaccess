@@ -1,0 +1,239 @@
+Option Compare Database
+Option Explicit
+
+Public MaxiArray As String
+
+'----------------------------------------------
+
+Sub BigTest()
+'This is the main process, divided into two sections, GetDI (which retrieves info related to the job) _
+and SendDI (which uses all that info to publish a dxf)
+
+Dim DocIN
+Dim DocOUT
+Dim OrderNumber As String
+Dim MaxiArray2 As String
+OrderNumber = "330311"
+
+    DocIN = GetDI("dbo_DOC_HEADER", "DOC_REFNO", [OrderNumber])
+    MaxiArray2 = Format(MaxiArray, "#00")
+    DocOUT = SendDI([DocIN], "C:\Users\Tristan.Jonas\Desktop\testfolder\LASTTESTS\FINALTEST" & MaxiArray2 & ".dxf")
+End Sub
+
+'----------------------------------------------
+
+Function GetDH(FirstDB As String, FirstRow As String, FirstPhrase As String, LastPhrase As String) As String()
+'FirstDB is the name of the Form, FirstRow is the name of the column you're searching through, FirstPhrase _
+is the phrase you're looking for, and LastPhrase is the column of the corresponding string you're searching for
+
+'Set all variables accordingly
+    Dim rst As Recordset
+    Set rst = CurrentDb.OpenRecordset("Select * from " & FirstDB & " where " & FirstRow & "=" & FirstPhrase)
+    Dim Arr() As String
+    Dim i As Integer
+    ReDim Arr(i)
+
+'Loop through table to find phrase and relay coinciding data info to function
+    While rst.EOF = False
+        ReDim Preserve Arr(i)
+        Arr(i) = rst.Fields(LastPhrase)
+        i = i + 1
+        rst.MoveNext
+        Wend
+    
+'Send data to function
+    GetDH = Arr
+    
+End Function
+
+'----------------------------------------------
+
+Function GetDX(FirstDB As String, FirstRow As String, FirstPhrase As String, LastPhrase As String) As String()
+'FirstDB is the name of the Form, FirstRow is the name of the column you're searching through, FirstPhrase _
+is the phrase you're looking for, and LastPhrase is the column of the corresponding string you're searching for
+
+'Set all variables accordingly
+    Dim rst3 As Recordset
+    Set rst3 = CurrentDb.OpenRecordset("Select * from " & FirstDB & " where " & FirstRow & "=" & "'" & FirstPhrase & "'")
+    Dim Arr() As String
+    Dim i As Integer
+    ReDim Arr(i)
+
+'Loop through table to find phrase and relay coinciding data info to function
+    While rst3.EOF = False
+        ReDim Preserve Arr(i)
+        Arr(i) = rst3.Fields(LastPhrase)
+        i = i + 1
+        rst3.MoveNext
+        Wend
+
+'Send data to function
+    GetDX = Arr
+    
+End Function
+
+'----------------------------------------------
+
+Function GetDI(FirstDB As String, FirstRow As String, FirstPhrase As String) As String()
+
+'Declare all variables, 3 categories: recordsets, array info, and variables for translating the data
+    Dim rst As Recordset
+    Dim rst2 As Recordset
+    Dim rst3 As Recordset
+    Set rst = CurrentDb.OpenRecordset("Select * from dbo_DOC_HEADER where DOC_REFNO=" & FirstPhrase)
+
+    Dim Arr() As String
+    Dim i As Integer
+    ReDim Arr(12, i)
+    
+    Dim VARTEST As Variant
+    Dim VARWORK As String
+
+'Loop that searches for job by using the order number
+    While rst.EOF = False
+         ReDim Preserve Arr(12, i)
+         
+'Retrieves basic info for the dxf and also index info for reading other tables
+         Arr(0, i) = rst.Fields("DOCINDEX")
+         Arr(1, i) = rst.Fields("CUSTOMER_NO")
+         Arr(2, i) = rst.Fields("SUBJECT")
+         Arr(10, i) = rst.Fields("DOC_REFNO")
+         Arr(11, i) = rst.Fields("FolderPath")
+         
+'Retrieves table location of possible tabs
+         Set rst2 = CurrentDb.OpenRecordset("Select * from dbo_DOC_ITEMS where DOCINDEX=" & Arr(0, 0) & " ORDER BY ITEMNO")
+            
+'Loop that retrieves info and sorts them into their respective tabs
+            While rst2.EOF = False
+            ReDim Preserve Arr(12, i)
+            
+'Retrieves very basic info for the dxf and also index info for reading other tables (may seem redundant but this keeps things consistent)
+            Arr(0, i) = rst.Fields("DOCINDEX")
+            Arr(1, i) = rst.Fields("CUSTOMER_NO")
+            Arr(2, i) = rst.Fields("SUBJECT")
+            Arr(12, i) = rst.Fields("SUBJECT")
+            Arr(9, i) = rst.Fields("ParentID")
+            Arr(10, i) = rst.Fields("DOC_REFNO")
+
+'This tests for edge thickness, if the row includes edge thickness then it's going to include the rest of the info by default
+            If rst2.Fields("THICKNESS") = "0" Then
+                Else
+                
+'This retrieves the material color using an index number
+                VARWORK = rst2.Fields("MATERIAL_INDEX")
+                VARTEST = GetDH("dbo_MATERIALS", "INDEX", VARWORK, "NAME")
+                Arr(3, i) = VARTEST(0)
+
+'This retrieves the material type using an index number
+                VARWORK = rst2.Fields("MATERIAL_GROUPID")
+                VARTEST = GetDX("dbo_MAT_GROUPS", "GROUPID", VARWORK, "NAME")
+                Arr(4, i) = VARTEST(0)
+            
+'This retrieves the dealer name using an index number
+                VARWORK = Arr(1, i)
+                VARTEST = GetDH("dbo_CUSTOMERS", "CUSTOMER_NO", VARWORK, "NAME1")
+                Arr(5, i) = VARTEST(0)
+            
+'This retrieves the edge thickness
+                Arr(6, i) = rst2.Fields("THICKNESS") & "CM"
+                Arr(8, i) = rst2.Fields("Description")
+                i = i + 1
+                ReDim Preserve Arr(12, i)
+                End If
+            
+'This retrieves the edge profile
+            If InStr(rst2.Fields("PRODUCT_CODE"), "EDG") Then
+                VARWORK = rst2.Fields("PRODUCT_CODE")
+                Arr(7, i - 1) = VARWORK
+                End If
+                
+            rst2.MoveNext
+            Wend
+    rst.MoveNext
+    Wend
+    
+'Send all info up, MaxiArray is the number of pages the dxf will be
+    GetDI = Arr
+    MaxiArray = i
+    
+End Function
+
+'----------------------------------------------
+
+Function SendDI(ArrayData As Variant, FilePath As String)
+'This will process and publish the order information from the array info gathered by GetDI
+  
+  Dim TextFile As Integer
+  Dim FileContent As String
+  Dim i As String
+  Dim Count As Integer
+  Dim NewPath As String
+
+  i = 1
+  i = Format(i, "#00")
+
+'Retrieve file contents from template dxf
+  TextFile = FreeFile
+  Open FilePath For Input As TextFile
+  FileContent = Input(LOF(TextFile), TextFile)
+  Close TextFile
+  
+'Process the suffix amount and format it
+  For Count = 1 To MaxiArray
+  i = Format(i, "#00")
+  
+'Process the customer name, converges the name of the customer with the part of the job (eg. 'Jones - Basement Bar')
+  ArrayData(2, i - 1) = Left(ArrayData(2, i - 1), InStr(1, ArrayData(2, i - 1), "-") - 1)
+  ArrayData(2, i - 1) = ArrayData(2, i - 1) & "- " & ArrayData(8, i - 1)
+'Get the name of the edge profile used for this part of the job
+  ArrayData(7, i - 1) = GetRealEdge(ArrayData(7, i - 1))
+  
+'Find/Replace
+  FileContent = Replace(FileContent, "DEALERTEXT" & i, UCase(ArrayData(5, i - 1))) 'Dealer
+  FileContent = Replace(FileContent, "CUSTOMERTEXT" & i, UCase(ArrayData(2, i - 1))) 'Customer
+  FileContent = Replace(FileContent, "MATERIALTEXT" & i, UCase(ArrayData(4, i - 1))) 'Material
+  FileContent = Replace(FileContent, "COLORTEXT" & i, UCase(ArrayData(3, i - 1))) 'Color
+  FileContent = Replace(FileContent, "THICKNESSTEXT" & i, ArrayData(6, i - 1)) 'Thickness
+  FileContent = Replace(FileContent, "JOBNUMBERTEXT" & i, ArrayData(10, i - 1)) 'Order Number
+  FileContent = Replace(FileContent, "DRAWNBY" & i, UCase("USERNAME")) 'Drawer
+  FileContent = Replace(FileContent, "DATETEXT" & i, Date) 'Current Date
+  FileContent = Replace(FileContent, "PARENTNUMBERTEXT" & i, ArrayData(9, i - 1)) 'Parent Number
+  FileContent = Replace(FileContent, "EDGEICON" & i, ArrayData(7, i - 1)) 'Edge Profile
+  FileContent = Replace(FileContent, "AREA " & i, UCase(ArrayData(8, i - 1))) 'Tab Name
+  
+  i = i + 1
+  Next Count
+
+'Process the raw directory information into a full directory, process the file name, and then publish the dxf
+  TextFile = FreeFile
+  ArrayData(11, 0) = Replace(ArrayData(11, 0), "\\cectops.local\root$\Projects", "T:")
+  NewPath = ArrayData(11, 0) & "CAD Files\Fabrication\" & ArrayData(10, 0) & " - FD - " & UCase(ArrayData(12, 0)) & " - " & Date & ".dxf"
+  NewPath = Replace(NewPath, "/", ".")
+  FileCopy FilePath, NewPath
+  Open NewPath For Output As TextFile
+  Print #TextFile, FileContent
+  Close TextFile
+
+End Function
+
+'----------------------------------------------
+
+Function GetRealEdge(EdgeImport)
+'Function for identifying what edge profile the job has
+
+    If InStr(EdgeImport, "EASED") Then
+        EdgeImport = "EASED"
+        End If
+        
+'If it's blank, then it will automatically be attributed to EASED, until we can insert a placeholder icon that says something like "NO EDGE SELECTED" _
+but this needs to be worked out with CAD first
+    If EdgeImport = "" Then
+        EdgeImport = "EASED"
+        End If
+        
+'Final assignment of the variable
+    GetRealEdge = EdgeImport
+
+End Function
+
+'----------------------------------------------
